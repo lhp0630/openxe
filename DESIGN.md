@@ -8,8 +8,9 @@
 | --- | --- |
 | **Runtime（机制）** | 可插拔 Signature 运行时：多种方式「进」Signature，统一 Predict，通用 Output dict 出 |
 | **Product（产品）** | **通用 BI 要素提取**：自然语言 → 指标 / 维度 / 条件（键名与枚举由 BI 元数据约束） |
+| **KnowledgeGraph（可选）** | **业务规则图**：圈定模型可见的元数据子集（不替代全量目录） |
 
-对外开源叙事与默认 API 只讲 Product；Runtime 是可复用底座，不单独包装成「任意领域抽取库」。
+对外开源叙事与默认 API 只讲 Product；Runtime 是可复用底座；KnowledgeGraph 为可选约束。
 
 ---
 
@@ -18,9 +19,12 @@
 ```text
 ┌──────────────────────────────────────────────────────────┐
 │ Product · BI 要素提取（默认对外 API）                      │
-│  BiExtractor(metadata, lm, signature_spec?=默认BI模板)   │
+│  OpenXE(metadata, knowledge_graph?=None, lm, …)          │
 │  text → BiResult JSON {指标, 维度, 条件, ...}              │
-│  metadata：合法指标/维/条件枚举 · 空槽约定 · 归一          │
+│                                                          │
+│  BiMetadata     = 全量元数据目录（合法指标/维/条件枚举）    │
+│  KnowledgeGraph = 可选业务规则（圈定模型可见名列表）        │
+│       effective_metadata = kg.apply_to_metadata(full)    │
 └────────────────────────────┬─────────────────────────────┘
                              │ 组装 InputField kwargs
                              │ 消费 OutputField dict → 归一
@@ -88,18 +92,54 @@ Runtime **禁止**出现「指标 / 维度 / 条件」常量或电力等行业�
 
 键名可由元数据配置（如英文 `metrics` / `dimensions` / `filters`），**语义角色**不变。
 
-### 4.2 BI 元数据
+### 4.2 BI 元数据 vs KnowledgeGraph
 
-初始化注入，决定：
+| | **BiMetadata** | **KnowledgeGraph**（可选） |
+| --- | --- | --- |
+| 角色 | **全量**合法目录 | **业务规则**：圈定模型可见范围 |
+| 内容 | metrics / dimensions / filters / aliases | Topic · Vocabulary · Measure · Dimension 及边 |
+| 时机 | OpenXE 必选（可空目录） | OpenXE 可选参数 |
+| 效果 | 归一与空槽约定 | `apply_to_metadata` → 收窄 `summary_text` 与后续归一枚举 |
 
-- 合法指标 / 维度成员、条件字段与枚举（含多值）
-- 顶层键名映射
-- 未提及槽位的空值约定（`[]` / `null` / `{}`）
-- 别名 → 合法值的归一规则（如「居民」→ 乡村/城镇居民）
+接入时序：
 
-换行业 / 换数仓 = **换元数据**（± 换 Signature 描述里的提示），不改 Runtime。
+```text
+1. 加载 BiMetadata（数仓/产品全量目录）
+2. 可选加载 FileKnowledgeGraph（Excel 业务规则）
+3. OpenXE.__init__:
+     effective = kg.apply_to_metadata(full) if kg else full
+4. BiExtractor 仅看到 effective（模型可选列表被圈定）
+```
 
-### 4.3 默认 Signature（产品内置模板，仍走 Spec）
+换行业 / 换数仓 = **换 BiMetadata**；换分析主题口径 = **换 KnowledgeGraph**（± 换 Signature 描述）。
+
+### 4.3 KnowledgeGraph 文件形态（Excel）
+
+实体 sheet（列仅 `vid` / `name` / `description`）：
+
+| sheet | 实体 |
+| --- | --- |
+| `topics` | Topic |
+| `vocabularies` | Vocabulary |
+| `measures` | Measure |
+| `dimensions` | Dimension |
+
+关系 sheet（列 `src_vid` / `dst_vid`）：
+
+| sheet | 边语义 |
+| --- | --- |
+| `synonyms` | Vocabulary → Vocabulary |
+| `hyponyms` | Vocabulary → Vocabulary |
+| `represents` | Vocabulary → Topic \| Measure |
+| `topic_measures` | Topic → Measure |
+| `topic_dimensions` | Topic → Dimension |
+| `subtopics` | Topic → Topic |
+
+`description`：给人阅读的说明文案（非机器枚举键）。无 Note / BizGlossary。
+
+实现：`openxe.knowledge_graph.FileKnowledgeGraph`（Polars 读表）。
+
+### 4.4 默认 Signature（产品内置模板，仍走 Spec）
 
 内置一段 **BI 向** Signature 代码字符串（或等价 `ClassSignatureSpec`），示意：
 
@@ -108,11 +148,11 @@ Runtime **禁止**出现「指标 / 维度 / 条件」常量或电力等行业�
 
 用户可插拔替换 Spec；默认路径保证开箱即是 BI 抽取。
 
-### 4.4 门面
+### 4.5 门面
 
-`BiExtractor`（对外也可导出为 `Extractor`）：
+`OpenXE` / `BiExtractor`：
 
-1. 绑定 `BiMetadata` + LM + `SignatureSpec`（默认 BI 模板）
+1. 绑定 `BiMetadata`（+ 可选 `KnowledgeGraph`）+ LM + `SignatureSpec`（默认 BI 模板）
 2. `extract(text) -> BiResult`
 3. 内部：拼 Input → `Runner` → 原始 dict → `normalize` → `BiResult`
 
@@ -125,6 +165,7 @@ Runtime **禁止**出现「指标 / 维度 / 条件」常量或电力等行业�
 | BI 要素 JSON，喂报表 / NL2SQL / 指标平台 | 完整 SQL 生成与执行 |
 | Signature 字符串或类两种进法 | 把开源定位做成「任意 NLP 任务运行时」 |
 | 元数据约束下的归一 | GUI、绑定 oneboard Spec |
+| 可选 KG 圈定模型可见目录 | 用 KG 替代 BiMetadata 全量目录 |
 | state / 优化扩展点 | 在 Runtime 写死行业 Schema |
 
 ---
@@ -134,8 +175,8 @@ Runtime **禁止**出现「指标 / 维度 / 条件」常量或电力等行业�
 | 文档 | 关系 |
 | --- | --- |
 | [REQUIREMENTS.md](./REQUIREMENTS.md) | 产品需求与背景；以本设计的 Product 层为准 |
-| [FILE_LAYOUT.md](./FILE_LAYOUT.md) | 文件落点；Runtime / Product 分目录 |
-| [README.md](./README.md) | 对外只强调 BI；机制一句带过 |
+| [FILE_LAYOUT.md](./FILE_LAYOUT.md) | 文件落点；Runtime / Product / KG 分目录 |
+| [README.md](./README.md) | 对外只强调 BI；机制与可选 KG 一句带过 |
 | `work/dspy_lfx_demo.md` | Runtime 中 `CodeSignatureSpec` 的参考实现 |
 
 ---
@@ -154,5 +195,6 @@ Runtime **禁止**出现「指标 / 维度 / 条件」常量或电力等行业�
 
 1. **产品核心** = 通用 BI 要素提取（指标 / 维度 / 条件 + 元数据）。
 2. **机制** = 可插拔 `SignatureSpec`（字符串进为主，类进为辅）+ 通用 Runner。
-3. **接入** = 代码 / MCP / pydantic_ai Capability 三入口，共用 `OpenXE`。
-4. 默认体验 = 内置 BI Signature 模板；高级用户换 Spec，但不改变「我们是 BI 抽取」的定位。
+3. **KnowledgeGraph** = 可选业务规则图；**不**替代 BiMetadata；在 OpenXE 初始化时圈定可见名。
+4. **接入** = 代码 / MCP / pydantic_ai Capability 三入口，共用 `OpenXE`。
+5. 默认体验 = 内置 BI Signature 模板；高级用户换 Spec，但不改变「我们是 BI 抽取」的定位。

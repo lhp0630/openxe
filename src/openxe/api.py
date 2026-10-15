@@ -10,11 +10,14 @@ Usage::
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from openxe.bi.extractor import BiExtractor
 from openxe.bi.metadata import BiMetadata
 from openxe.bi.result import BiResult
+from openxe.knowledge_graph.base import KnowledgeGraphBase
+from openxe.knowledge_graph.file_graph import load_knowledge_graph
 
 if TYPE_CHECKING:
     from openxe.pipeline.signature_spec import SignatureSpec
@@ -27,6 +30,7 @@ class OpenXE:
         self,
         metadata: BiMetadata | dict[str, Any] | None = None,
         *,
+        knowledge_graph: KnowledgeGraphBase | str | Path | None = None,
         lm: Any = None,
         signature_spec: SignatureSpec | None = None,
         state: dict[str, Any] | None = None,
@@ -37,6 +41,20 @@ class OpenXE:
             meta = metadata
         else:
             meta = BiMetadata.model_validate(metadata)
+
+        kg: KnowledgeGraphBase | None
+        if knowledge_graph is None:
+            kg = None
+        elif isinstance(knowledge_graph, KnowledgeGraphBase):
+            kg = knowledge_graph
+        else:
+            kg = load_knowledge_graph(knowledge_graph)
+
+        # BiMetadata = full catalog; KnowledgeGraph (optional) scopes model-visible names.
+        if kg is not None:
+            meta = kg.apply_to_metadata(meta)
+
+        self._knowledge_graph = kg
         self._extractor = BiExtractor(
             meta,
             lm=lm,
@@ -46,7 +64,12 @@ class OpenXE:
 
     @property
     def metadata(self) -> BiMetadata:
+        """Effective metadata after optional knowledge-graph scoping."""
         return self._extractor.metadata
+
+    @property
+    def knowledge_graph(self) -> KnowledgeGraphBase | None:
+        return self._knowledge_graph
 
     def extract(self, text: str) -> BiResult:
         """Extract BI elements from natural language."""

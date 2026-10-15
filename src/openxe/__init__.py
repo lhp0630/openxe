@@ -14,11 +14,19 @@ from openxe.exceptions import (
     OpenXEError,
     SignatureError,
 )
+from openxe.knowledge_graph import (
+    FileKnowledgeGraph,
+    KnowledgeGraphBase,
+    load_knowledge_graph,
+)
 
 __all__ = [
     "OpenXE",
     "BiMetadata",
     "BiResult",
+    "KnowledgeGraphBase",
+    "FileKnowledgeGraph",
+    "load_knowledge_graph",
     "OpenXEError",
     "MetadataError",
     "ExtractError",
