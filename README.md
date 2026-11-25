@@ -52,4 +52,5 @@ from openxe.capability import build_capability
 | --- | --- |
 | 栈 | Python · uv · DSPy · Polars |
 | 文档 | [需求](./REQUIREMENTS.md) · [分层设计](./DESIGN.md) · [入口](./ENTRIES.md) · [文件](./FILE_LAYOUT.md) |
+| 治理（Draft） | [调研报告](./docs/research/README.md) · [RFCs](./RFCs/README.md) |
 | 状态 | 三入口 + 可选 KG 已落；Predict/归一完整实现待续 |
